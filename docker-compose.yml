@@ -1,0 +1,123 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:14-alpine
+    container_name: maskot-postgres
+    environment:
+      POSTGRES_USER: maskot_user
+      POSTGRES_PASSWORD: maskot_password
+      POSTGRES_DB: maskot_unit_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U maskot_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MongoDB Database (Alternative)
+  mongodb:
+    image: mongo:6-alpine
+    container_name: maskot-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin_password
+      MONGO_INITDB_DATABASE: maskot_unit_dev
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: maskot-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API (Node.js)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: maskot-backend
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://maskot_user:maskot_password@postgres:5432/maskot_unit_dev
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: your_super_secret_jwt_key_change_in_production
+      MPESA_API_KEY: ${MPESA_API_KEY}
+      MPESA_SECRET: ${MPESA_SECRET}
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    command: npm run dev
+
+  # Frontend React App
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: maskot-frontend
+    environment:
+      REACT_APP_API_URL: http://localhost:3001/api
+      REACT_APP_ENV: development
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev
+
+  # Adminer (Database Admin Interface)
+  adminer:
+    image: adminer
+    container_name: maskot-adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+
+  # MongoDB Express (MongoDB Admin Interface)
+  mongo-express:
+    image: mongo-express:latest
+    container_name: maskot-mongo-express
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: admin_password
+      ME_CONFIG_MONGODB_URL: mongodb://admin:admin_password@mongodb:27017/
+    ports:
+      - "8081:8081"
+    depends_on:
+      - mongodb
+
+volumes:
+  postgres_data:
+  mongodb_data:
+  redis_data:
